@@ -1,0 +1,8 @@
+{
+  "name": "FitCheck",
+  "description": "Capsule wardrobe mix-and-match visualizer and smart shopping advisor for testing drops against your closet and monthly budget.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
