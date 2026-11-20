@@ -11,6 +11,15 @@ import {
   extractGroundingSources,
   parseImageDataUrl,
 } from './src/utils/stylistPrompt';
+import {
+  LifestyleSceneKey,
+  MOODBOARD_RESPONSE_SCHEMA,
+  MoodboardGarmentInput,
+  MoodboardProfileInput,
+  VALID_SCENE_KEYS,
+  buildMoodboardPrompt,
+  normalizeMoodboardPlan,
+} from './src/utils/moodboard';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -199,6 +208,116 @@ async function startServer() {
         reply: result.text,
         model,
         sources: result.sources,
+      });
+    } catch (err: unknown) {
+      const { status, message } = extractReadableError(err);
+      res.status(status).json({
+        error: message,
+      });
+    }
+  });
+
+  app.post('/api/moodboard', async (req: Request, res: Response) => {
+    const body = req.body as {
+      items?: MoodboardGarmentInput[];
+      profile?: MoodboardProfileInput;
+      lighting?: 'Daylight' | 'Warm Indoor' | 'Evening';
+      sceneKey?: string;
+      customNote?: string;
+    };
+
+    const items = Array.isArray(body?.items)
+      ? body.items.filter(
+          (i): i is MoodboardGarmentInput =>
+            Boolean(i && typeof i.name === 'string' && i.name.trim().length > 0),
+        )
+      : [];
+
+    if (items.length === 0) {
+      res.status(400).json({
+        error: 'Equip at least one garment in the Smart Mirror before generating a moodboard.',
+      });
+      return;
+    }
+
+    const ai = getGeminiClient();
+    if (!ai) {
+      res.status(503).json({
+        error:
+          'Gemini API key is not configured. Check Settings > Secrets to attach GEMINI_API_KEY.',
+      });
+      return;
+    }
+
+    const sceneKey: LifestyleSceneKey = VALID_SCENE_KEYS.has(
+      body.sceneKey as LifestyleSceneKey,
+    )
+      ? (body.sceneKey as LifestyleSceneKey)
+      : 'campus_cafe';
+
+    const lighting =
+      body.lighting === 'Daylight' ||
+      body.lighting === 'Evening' ||
+      body.lighting === 'Warm Indoor'
+        ? body.lighting
+        : 'Warm Indoor';
+
+    const profile: MoodboardProfileInput = {
+      skinTone: body.profile?.skinTone ?? 'wheatish',
+      undertone: body.profile?.undertone ?? 'Warm',
+      size: body.profile?.size ?? 'M',
+      fitPreference: body.profile?.fitPreference ?? 'Regular',
+      bodyType: body.profile?.bodyType ?? 'average',
+    };
+
+    const parts: Part[] = [];
+    for (const item of items.slice(0, 2)) {
+      const parsedImage = parseImageDataUrl(item.imageUrl);
+      if (parsedImage) {
+        parts.push({
+          inlineData: {
+            mimeType: parsedImage.mimeType,
+            data: parsedImage.data,
+          },
+        });
+      }
+    }
+    parts.push({
+      text: buildMoodboardPrompt({
+        items,
+        profile,
+        lighting,
+        sceneKey,
+        customNote: typeof body.customNote === 'string' ? body.customNote : undefined,
+      }),
+    });
+
+    try {
+      const result = await sendWithRetry(async () => {
+        const response = await ai.models.generateContent({
+          model: 'gemini-3.1-flash-lite',
+          contents: { parts },
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: MOODBOARD_RESPONSE_SCHEMA,
+            thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+          },
+        });
+        const rawText = (response.text ?? '').trim();
+        if (!rawText) {
+          throw new Error('Moodboard model returned an empty response.');
+        }
+        const parsedJson = JSON.parse(rawText) as unknown;
+        return normalizeMoodboardPlan(parsedJson, {
+          items,
+          sceneKey,
+          lighting,
+        });
+      });
+
+      res.json({
+        moodboard: result,
+        model: 'gemini-3.1-flash-lite',
       });
     } catch (err: unknown) {
       const { status, message } = extractReadableError(err);

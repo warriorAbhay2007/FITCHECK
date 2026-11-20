@@ -1,19 +1,19 @@
 @import "tailwindcss";
 
 @theme {
-  --font-display: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Cormorant Garamond", Georgia, serif;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
 @layer base {
   body {
     font-family: var(--font-sans);
-    background-color: #0e1117;
-    color: #f1f5f9;
+    background-color: #181512;
+    color: #f5efe6;
   }
 
-  h1, h2, h3, h4, .font-display {
+  h1, h2, h3, .font-display {
     font-family: var(--font-display);
   }
 }
@@ -22,7 +22,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Custom subtle scrollbars for studio panels */
+/* Luxury espresso scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -33,18 +33,115 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.22);
+  background: rgba(224, 185, 115, 0.24);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.38);
+  background: rgba(224, 185, 115, 0.44);
+}
+
+/* 3D Wardrobe Perspective & Door Hinges */
+.wardrobe-perspective {
+  perspective: 1400px;
+  perspective-origin: 50% 45%;
+}
+
+.wardrobe-door {
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+  will-change: transform, opacity;
+  transition: transform 1100ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.wardrobe-door-left {
+  transform-origin: left center;
+}
+
+.wardrobe-door-right {
+  transform-origin: right center;
+}
+
+.wardrobe-door-left[data-open="true"] {
+  transform: rotateY(-105deg);
+}
+
+.wardrobe-door-right[data-open="true"] {
+  transform: rotateY(105deg);
+}
+
+/* Subtle luxury wood grain & brushed metal finishes */
+.wood-door-surface {
+  background-color: #201a16;
+  background-image:
+    linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.025) 0%,
+      rgba(0, 0, 0, 0.16) 28%,
+      rgba(255, 255, 255, 0.02) 56%,
+      rgba(0, 0, 0, 0.2) 84%,
+      rgba(255, 255, 255, 0.015) 100%
+    ),
+    repeating-linear-gradient(
+      90deg,
+      rgba(224, 185, 115, 0.018) 0px,
+      rgba(224, 185, 115, 0.018) 2px,
+      transparent 2px,
+      transparent 14px
+    );
+}
+
+.closet-cabinet-bg {
+  background-color: #181512;
+  background-image:
+    radial-gradient(ellipse 80% 45% at 50% 0%, rgba(224, 185, 115, 0.14) 0%, transparent 70%),
+    linear-gradient(180deg, #211b16 0%, #181512 52%, #13100d 100%);
+}
+
+.closet-rod {
+  background: linear-gradient(
+    180deg,
+    #f5efe6 0%,
+    #cbb693 38%,
+    #78654b 72%,
+    #3d3124 100%
+  );
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.55);
+}
+
+.led-strip-glow {
+  background: linear-gradient(90deg, rgba(224, 185, 115, 0.12) 0%, #f5efe6 50%, rgba(224, 185, 115, 0.12) 100%);
+  box-shadow:
+    0 0 14px rgba(245, 239, 230, 0.45),
+    0 4px 20px rgba(224, 185, 115, 0.28);
+}
+
+/* Physical Hanger Sway on Hover */
+.hanger-sway {
+  transform-origin: 50% 6px;
+  transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
+}
+
+.group:hover .hanger-sway,
+.group:focus-visible .hanger-sway {
+  transform: rotate(3deg);
+}
+
+@keyframes pullCordTug {
+  0% { transform: translateY(0); }
+  45% { transform: translateY(10px); }
+  100% { transform: translateY(0); }
+}
+
+.animate-cord-tug {
+  animation: pullCordTug 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @keyframes slotSwapIn {
   from {
     opacity: 0;
-    transform: translateY(6px) scale(0.985);
+    transform: translateY(5px) scale(0.985);
   }
   to {
     opacity: 1;
@@ -53,7 +150,20 @@
 }
 
 .animate-slot-swap {
-  animation: slotSwapIn 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: slotSwapIn 190ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes garmentFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-garment-fade {
+  animation: garmentFadeIn 190ms ease-out both;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -63,3 +173,29 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Fixed-Ratio Mannequin Stage for Exact Body-Anchor Garment Locking */
+.mannequin-stage {
+  position: relative;
+  aspect-ratio: 200 / 440;
+  height: 100%;
+  max-height: 100%;
+  max-width: 100%;
+  width: auto;
+  margin-inline: auto;
+}
+
+.mannequin-contour-overlay {
+  background:
+    radial-gradient(ellipse 46% 36% at 50% 34%, rgba(255, 248, 238, 0.07) 0%, transparent 65%),
+    linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.28) 0%,
+      rgba(0, 0, 0, 0.06) 24%,
+      rgba(255, 255, 255, 0.05) 50%,
+      rgba(0, 0, 0, 0.06) 76%,
+      rgba(0, 0, 0, 0.28) 100%
+    );
+  mix-blend-mode: soft-light;
+}
+

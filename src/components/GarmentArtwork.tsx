@@ -7,15 +7,21 @@ interface GarmentArtworkProps {
   name: string;
   imageUrl?: string;
   className?: string;
+  transparentBg?: boolean;
 }
 
-function getStrokeColor(hex: string): string {
+function getStrokeColor(hex: string, onDarkBg = false): string {
   const clean = hex.replace('#', '');
-  if (clean.length !== 6) return 'rgba(15,23,42,0.35)';
+  if (clean.length !== 6) {
+    return onDarkBg ? 'rgba(245,239,230,0.42)' : 'rgba(15,23,42,0.35)';
+  }
   const r = parseInt(clean.slice(0, 2), 16);
   const g = parseInt(clean.slice(2, 4), 16);
   const b = parseInt(clean.slice(4, 6), 16);
   const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  if (onDarkBg) {
+    return luminance < 0.3 ? 'rgba(245,239,230,0.48)' : 'rgba(24,21,18,0.42)';
+  }
   return luminance < 0.35 ? 'rgba(255,255,255,0.28)' : 'rgba(15,23,42,0.28)';
 }
 
@@ -25,6 +31,7 @@ export const GarmentArtwork: React.FC<GarmentArtworkProps> = ({
   name,
   imageUrl,
   className = 'w-full h-full',
+  transparentBg = false,
 }) => {
   const [imgFailed, setImgFailed] = useState(false);
 
@@ -35,21 +42,23 @@ export const GarmentArtwork: React.FC<GarmentArtworkProps> = ({
         alt={name}
         referrerPolicy="no-referrer"
         onError={() => setImgFailed(true)}
-        className={`object-cover ${className}`}
+        className={`${transparentBg ? 'object-contain p-1' : 'object-cover'} ${className}`}
       />
     );
   }
 
-  const stroke = getStrokeColor(colorHex);
+  const stroke = getStrokeColor(colorHex, transparentBg);
 
   return (
     <div
-      className={`flex items-center justify-center bg-[#F4F3EF] ${className}`}
+      className={`flex items-center justify-center ${
+        transparentBg ? 'bg-transparent' : 'bg-[#F4F3EF]'
+      } ${className}`}
       aria-label={name}
     >
       <svg
         viewBox="0 0 120 120"
-        className="w-4/5 h-4/5 drop-shadow-sm"
+        className={`${transparentBg ? 'w-11/12 h-11/12' : 'w-4/5 h-4/5'} drop-shadow-[0_6px_12px_rgba(0,0,0,0.45)]`}
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
       >
@@ -71,6 +80,27 @@ export const GarmentArtwork: React.FC<GarmentArtworkProps> = ({
           </g>
         )}
 
+        {silhouette === 'polo' && (
+          <g>
+            <path
+              d="M36 24 L48 20 L60 25 L72 20 L84 24 L104 42 L93 57 L83 50 L83 98 L37 98 L37 50 L27 57 L16 42 Z"
+              fill={colorHex}
+              stroke={stroke}
+              strokeWidth="2.2"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M48 20 L55 31 L60 26 L65 31 L72 20"
+              stroke={stroke}
+              strokeWidth="1.9"
+              strokeLinejoin="round"
+            />
+            <line x1="60" y1="26" x2="60" y2="48" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" />
+            <circle cx="60" cy="36" r="1.4" fill={stroke} />
+            <circle cx="60" cy="43" r="1.4" fill={stroke} />
+          </g>
+        )}
+
         {silhouette === 'shirt' && (
           <g>
             <path
@@ -82,6 +112,25 @@ export const GarmentArtwork: React.FC<GarmentArtworkProps> = ({
             />
             <line x1="60" y1="26" x2="60" y2="99" stroke={stroke} strokeWidth="1.6" />
             <path d="M48 19 L55 31 L60 25 L65 31 L72 19" stroke={stroke} strokeWidth="1.8" strokeLinejoin="round" />
+          </g>
+        )}
+
+        {silhouette === 'kurta' && (
+          <g>
+            <path
+              d="M38 22 L49 18 H71 L82 22 L101 44 L95 85 L84 84 L84 48 L83 104 H37 L36 48 L36 84 L25 85 L19 44 Z"
+              fill={colorHex}
+              stroke={stroke}
+              strokeWidth="2.2"
+              strokeLinejoin="round"
+            />
+            <path d="M49 18 C52 24 68 24 71 18" stroke={stroke} strokeWidth="2" />
+            <line x1="60" y1="23" x2="60" y2="54" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" />
+            <circle cx="60" cy="33" r="1.4" fill={stroke} />
+            <circle cx="60" cy="42" r="1.4" fill={stroke} />
+            <circle cx="60" cy="50" r="1.4" fill={stroke} />
+            <line x1="37" y1="88" x2="37" y2="104" stroke={stroke} strokeWidth="1.4" />
+            <line x1="83" y1="88" x2="83" y2="104" stroke={stroke} strokeWidth="1.4" />
           </g>
         )}
 
@@ -106,7 +155,11 @@ export const GarmentArtwork: React.FC<GarmentArtworkProps> = ({
           </g>
         )}
 
-        {(silhouette === 'jacket' || silhouette === 'bomber' || silhouette === 'shell' || silhouette === 'coat') && (
+        {(silhouette === 'jacket' ||
+          silhouette === 'bomber' ||
+          silhouette === 'blazer' ||
+          silhouette === 'shell' ||
+          silhouette === 'coat') && (
           <g>
             <path
               d="M36 22 L49 19 L60 24 L71 19 L84 22 L104 44 L96 89 L83 88 L83 48 L83 100 L37 100 L37 48 L37 88 L24 89 L16 44 Z"
@@ -117,8 +170,16 @@ export const GarmentArtwork: React.FC<GarmentArtworkProps> = ({
             />
             <line x1="60" y1="24" x2="60" y2="100" stroke={stroke} strokeWidth="2" />
             <path d="M44 54 H54 M66 54 H76" stroke={stroke} strokeWidth="2" strokeLinecap="round" />
-            {silhouette === 'coat' && (
-              <path d="M46 21 L54 34 L60 25 L66 34 L74 21" stroke={stroke} strokeWidth="1.8" strokeLinejoin="round" />
+            {(silhouette === 'coat' || silhouette === 'blazer') && (
+              <>
+                <path d="M46 21 L54 37 L60 28 L66 37 L74 21" stroke={stroke} strokeWidth="1.8" strokeLinejoin="round" />
+                {silhouette === 'blazer' && (
+                  <>
+                    <circle cx="60" cy="64" r="1.7" fill={stroke} />
+                    <circle cx="60" cy="78" r="1.7" fill={stroke} />
+                  </>
+                )}
+              </>
             )}
             {silhouette === 'bomber' && (
               <rect x="37" y="92" width="46" height="8" rx="1" stroke={stroke} strokeWidth="1.6" />
@@ -126,13 +187,19 @@ export const GarmentArtwork: React.FC<GarmentArtworkProps> = ({
           </g>
         )}
 
-        {(silhouette === 'cargo' || silhouette === 'denim' || silhouette === 'trousers' || silhouette === 'shorts') && (
+        {(silhouette === 'cargo' ||
+          silhouette === 'joggers' ||
+          silhouette === 'denim' ||
+          silhouette === 'trousers' ||
+          silhouette === 'shorts') && (
           <g>
             <path
               d={
                 silhouette === 'shorts'
                   ? 'M33 22 H87 L92 68 L66 68 L60 46 L54 68 L28 68 Z'
-                  : 'M34 18 H86 L92 103 L66 103 L60 49 L54 103 L28 103 Z'
+                  : silhouette === 'joggers'
+                    ? 'M34 18 H86 L89 96 L84 103 L67 103 L65 96 L60 50 L55 96 L53 103 L36 103 L31 96 Z'
+                    : 'M34 18 H86 L92 103 L66 103 L60 49 L54 103 L28 103 Z'
               }
               fill={colorHex}
               stroke={stroke}
@@ -144,6 +211,13 @@ export const GarmentArtwork: React.FC<GarmentArtworkProps> = ({
               <>
                 <rect x="31" y="54" width="12" height="16" rx="2" stroke={stroke} strokeWidth="1.7" />
                 <rect x="77" y="54" width="12" height="16" rx="2" stroke={stroke} strokeWidth="1.7" />
+              </>
+            )}
+            {silhouette === 'joggers' && (
+              <>
+                <path d="M56 26 L53 38 M64 26 L67 38" stroke={stroke} strokeWidth="1.6" strokeLinecap="round" />
+                <line x1="34" y1="96" x2="54" y2="96" stroke={stroke} strokeWidth="1.8" />
+                <line x1="66" y1="96" x2="86" y2="96" stroke={stroke} strokeWidth="1.8" />
               </>
             )}
             {silhouette === 'trousers' && (

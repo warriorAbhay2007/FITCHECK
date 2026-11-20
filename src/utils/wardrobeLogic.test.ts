@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   areItemsCompatible,
+  buildColorPaletteSuggestions,
   buildVisibleDropsPriceData,
   calculateUnlockedOutfits,
   calculateWardrobeCompatibility,
@@ -230,4 +231,60 @@ test('buildVisibleDropsPriceData computes short labels, budget fit, average, and
   assert.equal(summary.points[0].fitsBudget, true);
   assert.equal(summary.points[1].shortLabel, 'Parka');
   assert.equal(summary.points[1].fitsBudget, false);
+});
+
+test('buildColorPaletteSuggestions recommends complementary and neutral wardrobe tones for drops', () => {
+  const neutralHoodie: TrendingDrop = {
+    id: 'd-hoodie',
+    name: '460gsm Washed Boxy Hoodie',
+    brand: 'Uniqlo U',
+    category: 'Tops',
+    priceInr: 1499,
+    storeName: 'Myntra',
+    storeUrl: 'https://www.myntra.com/',
+    colorName: 'Washed Charcoal',
+    colorHex: '#3F4248',
+    colorFamily: 'neutral',
+    vibe: 'Minimalist',
+    tags: ['neutral'],
+    fit: 'Boxy',
+    silhouette: 'hoodie',
+    fabricNote: 'Terry cotton',
+  };
+
+  const neutralPalette = buildColorPaletteSuggestions(neutralHoodie, sampleCloset);
+  assert.ok(neutralPalette.suggestions.length >= 3);
+  assert.ok(
+    neutralPalette.suggestions.some((s) => s.role === 'Complementary' && s.colorName === 'Olive'),
+  );
+  assert.ok(
+    neutralPalette.suggestions.some((s) => s.colorName === 'Indigo'),
+  );
+  assert.ok(
+    neutralPalette.suggestions.every((s) => s.category !== 'Tops'),
+  );
+
+  const boldVest: TrendingDrop = {
+    id: 'd-bold',
+    name: 'Acid Magenta Tactical Vest',
+    brand: 'Zara TRF',
+    category: 'Outerwear',
+    priceInr: 1699,
+    storeName: 'Zara',
+    storeUrl: 'https://www.zara.com/in/',
+    colorName: 'Acid Magenta',
+    colorHex: '#C026D3',
+    colorFamily: 'bold',
+    vibe: 'Techwear',
+    tags: ['neon'],
+    fit: 'Boxy',
+    silhouette: 'jacket',
+    fabricNote: 'Nylon',
+  };
+
+  const boldPalette = buildColorPaletteSuggestions(boldVest, sampleCloset);
+  assert.ok(boldPalette.suggestions.length >= 2);
+  assert.ok(
+    boldPalette.suggestions.every((s) => s.role === 'Neutral Anchor'),
+  );
 });

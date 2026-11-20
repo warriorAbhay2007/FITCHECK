@@ -1,19 +1,24 @@
-import React from 'react';
+import React, { useEffect, useMemo } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
   Clock,
   ExternalLink,
+  Palette,
   ShoppingBag,
   X,
 } from 'lucide-react';
-import { TrendingDrop, VerdictResult } from '../types/wardrobe';
-import { formatINR } from '../utils/wardrobeLogic';
+import { TrendingDrop, VerdictResult, WardrobeItem } from '../types/wardrobe';
+import {
+  buildColorPaletteSuggestions,
+  formatINR,
+} from '../utils/wardrobeLogic';
 import { GarmentArtwork } from './GarmentArtwork';
 
 interface VerdictModalProps {
   drop: TrendingDrop | null;
   verdict: VerdictResult | null;
+  wardrobe: WardrobeItem[];
   isPurchased: boolean;
   onClose: () => void;
   onTestDrop: (drop: TrendingDrop) => void;
@@ -23,12 +28,29 @@ interface VerdictModalProps {
 export const VerdictModal: React.FC<VerdictModalProps> = ({
   drop,
   verdict,
+  wardrobe,
   isPurchased,
   onClose,
   onTestDrop,
   onMarkPurchased,
 }) => {
-  if (!drop || !verdict) return null;
+  useEffect(() => {
+    if (!drop || !verdict) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [drop, verdict, onClose]);
+
+  const paletteAnalysis = useMemo(() => {
+    if (!drop) return null;
+    return buildColorPaletteSuggestions(drop, wardrobe, 4);
+  }, [drop, wardrobe]);
+
+  if (!drop || !verdict || !paletteAnalysis) return null;
 
   const tone = (() => {
     switch (verdict.kind) {
@@ -147,6 +169,78 @@ export const VerdictModal: React.FC<VerdictModalProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Color Palette Assistant */}
+          <section
+            aria-label="Color Palette Assistant"
+            className="rounded-xl border border-slate-200 bg-slate-50/90 p-3.5 space-y-3"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Palette
+                  className="w-4 h-4 text-[#B5892E] shrink-0"
+                  aria-hidden="true"
+                />
+                <h3 className="font-display text-sm font-bold text-slate-900 truncate">
+                  Color Palette Assistant
+                </h3>
+              </div>
+              <div className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-600 shrink-0">
+                <span
+                  className="w-3.5 h-3.5 rounded-full border border-black/15 shrink-0"
+                  style={{ backgroundColor: paletteAnalysis.dropColorHex }}
+                  aria-hidden="true"
+                />
+                <span>{paletteAnalysis.dropColorName}</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              {paletteAnalysis.headline}
+            </p>
+
+            {paletteAnalysis.suggestions.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {paletteAnalysis.suggestions.map((suggestion) => (
+                  <div
+                    key={suggestion.itemId}
+                    data-testid="palette-suggestion-card"
+                    className="flex items-start gap-2.5 rounded-lg bg-white border border-slate-200 p-2.5"
+                  >
+                    <span
+                      className="w-7 h-7 rounded-lg border border-slate-300/80 shrink-0 mt-0.5 shadow-inner"
+                      style={{ backgroundColor: suggestion.colorHex }}
+                      aria-hidden="true"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <p className="text-xs font-semibold text-slate-900 truncate">
+                          {suggestion.colorName}
+                        </p>
+                        <span
+                          className={`text-[10px] font-semibold shrink-0 ${
+                            suggestion.role === 'Complementary'
+                              ? 'text-emerald-700'
+                              : suggestion.role === 'Neutral Anchor'
+                                ? 'text-amber-700'
+                                : 'text-slate-600'
+                          }`}
+                        >
+                          {suggestion.role}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 truncate">
+                        {suggestion.itemName} · {suggestion.category}
+                      </p>
+                      <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
+                        {suggestion.reason}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
 
           {/* Styling Checklist */}
           <div>

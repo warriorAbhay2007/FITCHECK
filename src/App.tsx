@@ -1,40 +1,50 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Layers, Shirt, Sparkles } from 'lucide-react';
-import { BudgetTracker } from './components/BudgetTracker';
-import { OutfitCanvas } from './components/OutfitCanvas';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Bookmark, DoorClosed, RotateCcw } from 'lucide-react';
+import { AddMyClothesModal } from './components/AddMyClothesModal';
+import { ClosetRailsZone } from './components/ClosetRailsZone';
+import { MobileMirrorBar } from './components/MobileMirrorBar';
+import { MoodboardModal } from './components/MoodboardModal';
 import { SavedLooksDrawer } from './components/SavedLooksDrawer';
+import { ShareLookModal } from './components/ShareLookModal';
+import { SmartMirrorPanel } from './components/SmartMirrorPanel';
+import { StylingDrawerPanel } from './components/StylingDrawerPanel';
 import { StylistChatDrawer } from './components/StylistChatDrawer';
-import { TrendingDropsFeed } from './components/TrendingDropsFeed';
-import { VerdictModal } from './components/VerdictModal';
-import { WardrobeSidebar } from './components/WardrobeSidebar';
+import { WardrobeDoorsOverlay } from './components/WardrobeDoorsOverlay';
 import { TRENDING_DROPS } from './data/seedData';
 import {
-  BudgetState,
+  ClosetSourceFilter,
+  GarmentTransform,
+  OccasionFilter,
   OutfitSlots,
   SavedOutfit,
   SlotKey,
-  TrendingDrop,
   WardrobeItem,
+  WardrobeProfile,
 } from './types/wardrobe';
+import { exportOutfitCanvasAsPng } from './utils/exportOutfitPng';
+import { evaluateFitCheck } from './utils/fitCheckScore';
+import {
+  deletePersonalGarment,
+  loadPersonalGarments,
+  upsertPersonalGarment,
+} from './utils/personalWardrobeDb';
 import {
   loadBudget,
   loadSavedOutfits,
   loadWardrobe,
+  loadWardrobeProfile,
   resetAllDemoData,
-  saveBudget,
   saveSavedOutfits,
   saveWardrobe,
+  saveWardrobeProfile,
 } from './utils/storage';
+import { isTrendingDrop } from './utils/wardrobeLogic';
 import {
-  CATEGORY_TO_SLOT,
-  areItemsCompatible,
-  calculateUnlockedOutfits,
-  computeShoppingVerdict,
-  getCompatibleWardrobeIds,
-  isTrendingDrop,
-} from './utils/wardrobeLogic';
-
-type MobileTab = 'wardrobe' | 'canvas' | 'drops';
+  SKIN_TONE_OPTIONS,
+  applyGarmentSelection,
+  computeColorHarmony,
+  shuffleWardrobeOutfit,
+} from './utils/wardrobeStyling';
 
 function buildInitialSlots(wardrobe: WardrobeItem[]): OutfitSlots {
   const findFirst = (cat: WardrobeItem['category']) =>
@@ -48,238 +58,272 @@ function buildInitialSlots(wardrobe: WardrobeItem[]): OutfitSlots {
   };
 }
 
+function shouldAutoOpenWardrobe(): boolean {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.get('autostart') === '1';
+}
+
 export default function App() {
-  const [wardrobe, setWardrobe] = useState<WardrobeItem[]>(() => loadWardrobe());
-  const [budget, setBudget] = useState<BudgetState>(() => loadBudget());
+  const [isDoorsOpen, setIsDoorsOpen] = useState<boolean>(() =>
+    shouldAutoOpenWardrobe(),
+  );
+
+  const [catalogWardrobe, setCatalogWardrobe] = useState<WardrobeItem[]>(() =>
+    loadWardrobe(),
+  );
+  const [personalGarments, setPersonalGarments] = useState<WardrobeItem[]>([]);
+  const wardrobe = useMemo(
+    () => [...personalGarments, ...catalogWardrobe],
+    [personalGarments, catalogWardrobe],
+  );
+
   const [savedOutfits, setSavedOutfits] = useState<SavedOutfit[]>(() =>
     loadSavedOutfits(),
   );
-
+  const [profile, setProfile] = useState<WardrobeProfile>(() =>
+    loadWardrobeProfile(),
+  );
   const [slots, setSlots] = useState<OutfitSlots>(() =>
     buildInitialSlots(loadWardrobe()),
   );
-  const [activeFocusSlot, setActiveFocusSlot] = useState<SlotKey>('top');
-  const [mobileTab, setMobileTab] = useState<MobileTab>('canvas');
+  const [suspendedOuterwear, setSuspendedOuterwear] =
+    useState<WardrobeItem | null>(null);
 
-  const [verdictModalDrop, setVerdictModalDrop] = useState<TrendingDrop | null>(
+  const [occasionFilter, setOccasionFilter] = useState<OccasionFilter>('All');
+  const [closetSource, setClosetSource] = useState<ClosetSourceFilter>('all');
+  const [isAddGarmentOpen, setIsAddGarmentOpen] = useState(false);
+  const [editingGarment, setEditingGarment] = useState<WardrobeItem | null>(
     null,
   );
   const [isSavedDrawerOpen, setIsSavedDrawerOpen] = useState(false);
   const [isStylistChatOpen, setIsStylistChatOpen] = useState(false);
+  const [isMoodboardOpen, setIsMoodboardOpen] = useState(false);
+  const [shareModalOutfit, setShareModalOutfit] = useState<SavedOutfit | null>(
+    null,
+  );
+  const [isExporting, setIsExporting] = useState(false);
 
-  // Sync to localStorage
-  useEffect(() => {
-    saveWardrobe(wardrobe);
-  }, [wardrobe]);
+  const mirrorRef = useRef<HTMLDivElement | null>(null);
+  const budget = useMemo(() => loadBudget(), []);
 
   useEffect(() => {
-    saveBudget(budget);
-  }, [budget]);
+    let cancelled = false;
+    loadPersonalGarments().then((items) => {
+      if (!cancelled && items.length > 0) {
+        setPersonalGarments(items);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    saveWardrobe(catalogWardrobe);
+  }, [catalogWardrobe]);
 
   useEffect(() => {
     saveSavedOutfits(savedOutfits);
   }, [savedOutfits]);
 
-  const remainingBudgetInr = budget.monthlyLimitInr - budget.spentInr;
+  useEffect(() => {
+    saveWardrobeProfile(profile);
+  }, [profile]);
 
-  // Determine the currently active item for compatibility highlighting & unlocked count
-  const activeDropOnCanvas = useMemo(() => {
-    const candidate = (Object.values(slots) as (WardrobeItem | TrendingDrop | null)[])
-      .find((item) => isTrendingDrop(item));
-    return candidate && isTrendingDrop(candidate) ? candidate : null;
-  }, [slots]);
-
-  const activeFocusItem = useMemo(() => {
-    if (activeDropOnCanvas) return activeDropOnCanvas;
-    if (slots[activeFocusSlot]) return slots[activeFocusSlot];
-    return (
-      slots.top ??
-      slots.bottom ??
-      slots.outerwear ??
-      slots.footwear ??
-      null
-    );
-  }, [activeDropOnCanvas, slots, activeFocusSlot]);
-
-  const equippedIds = useMemo(() => {
-    const ids = new Set<string>();
-    Object.values(slots).forEach((item) => {
-      if (item) ids.add(item.id);
-    });
-    return ids;
-  }, [slots]);
-
-  const compatibleIds = useMemo(
-    () => getCompatibleWardrobeIds(activeFocusItem, wardrobe),
-    [activeFocusItem, wardrobe],
+  const fitEvaluation = useMemo(
+    () => evaluateFitCheck(slots, profile, wardrobe),
+    [slots, profile, wardrobe],
   );
+  const harmony = fitEvaluation.harmony;
 
-  const unlockedOutfitsCount = useMemo(() => {
-    if (!activeFocusItem) return 0;
-    return calculateUnlockedOutfits(activeFocusItem, wardrobe);
-  }, [activeFocusItem, wardrobe]);
-
-  const activeDropVerdict = useMemo(() => {
-    if (!activeDropOnCanvas) return null;
-    return computeShoppingVerdict(
-      activeDropOnCanvas,
-      wardrobe,
-      remainingBudgetInr,
-    );
-  }, [activeDropOnCanvas, wardrobe, remainingBudgetInr]);
-
-  const modalVerdict = useMemo(() => {
-    if (!verdictModalDrop) return null;
-    return computeShoppingVerdict(verdictModalDrop, wardrobe, remainingBudgetInr);
-  }, [verdictModalDrop, wardrobe, remainingBudgetInr]);
-
-  // Handlers
-  const handleSelectWardrobeItem = (item: WardrobeItem) => {
-    const slot = CATEGORY_TO_SLOT[item.category];
-    setSlots((prev) => ({ ...prev, [slot]: item }));
-    setActiveFocusSlot(slot);
-    setMobileTab('canvas');
-  };
-
-  const handleTestDrop = (drop: TrendingDrop) => {
-    const slot = CATEGORY_TO_SLOT[drop.category];
-    setSlots((prev) => ({ ...prev, [slot]: drop }));
-    setActiveFocusSlot(slot);
-    setMobileTab('canvas');
-  };
-
-  const handleAddWardrobeItem = (newItem: WardrobeItem) => {
-    setWardrobe((prev) => [newItem, ...prev]);
-    const slot = CATEGORY_TO_SLOT[newItem.category];
-    setSlots((prev) => ({ ...prev, [slot]: newItem }));
-    setActiveFocusSlot(slot);
-  };
-
-  const handleDeleteWardrobeItem = (id: string) => {
-    setWardrobe((prev) => prev.filter((item) => item.id !== id));
-    setSlots((prev) => {
-      const next = { ...prev };
-      (Object.keys(next) as SlotKey[]).forEach((k) => {
-        if (next[k]?.id === id) next[k] = null;
-      });
+  const handleUpdateProfile = (patch: Partial<WardrobeProfile>) => {
+    setProfile((prev) => {
+      const next = { ...prev, ...patch };
+      if (patch.layerOverBase === false && prev.layerOverBase && slots.outerwear) {
+        if (!isTrendingDrop(slots.outerwear)) {
+          setSuspendedOuterwear(slots.outerwear);
+        }
+        setSlots((s) => ({ ...s, outerwear: null }));
+      } else if (
+        patch.layerOverBase === true &&
+        !prev.layerOverBase &&
+        !slots.outerwear &&
+        suspendedOuterwear
+      ) {
+        setSlots((s) => ({ ...s, outerwear: suspendedOuterwear }));
+        setSuspendedOuterwear(null);
+      }
       return next;
     });
   };
 
+  const handleToggleLayerOverBase = () => {
+    handleUpdateProfile({ layerOverBase: !profile.layerOverBase });
+  };
+
+  const handleSelectItem = (item: WardrobeItem) => {
+    setSlots((prev) => applyGarmentSelection(prev, item, profile.layerOverBase));
+    setSuspendedOuterwear(null);
+  };
+
+  const handleApplySwap = (item: WardrobeItem) => {
+    setSlots((prev) => applyGarmentSelection(prev, item, true));
+    setSuspendedOuterwear(null);
+  };
+
+  const handleToggleOuterLayerVisibility = () => {
+    if (slots.outerwear) {
+      if (!isTrendingDrop(slots.outerwear)) {
+        setSuspendedOuterwear(slots.outerwear);
+      }
+      setSlots((prev) => ({ ...prev, outerwear: null }));
+      return;
+    }
+    if (suspendedOuterwear) {
+      setProfile((p) => ({ ...p, layerOverBase: true }));
+      setSlots((prev) => ({ ...prev, outerwear: suspendedOuterwear }));
+      setSuspendedOuterwear(null);
+    }
+  };
+
   const handleClearSlot = (slot: SlotKey) => {
+    if (slot === 'outerwear' && slots.outerwear && !isTrendingDrop(slots.outerwear)) {
+      setSuspendedOuterwear(slots.outerwear);
+    }
     setSlots((prev) => ({ ...prev, [slot]: null }));
   };
 
-  const handleClearAllSlots = () => {
+  const handleClearAll = () => {
     setSlots({
       outerwear: null,
       top: null,
       bottom: null,
       footwear: null,
     });
+    setSuspendedOuterwear(null);
   };
 
-  const handleShuffleCompatibleFit = () => {
-    const tops = wardrobe.filter((i) => i.category === 'Tops');
-    const bottoms = wardrobe.filter((i) => i.category === 'Bottoms');
-    const footwear = wardrobe.filter((i) => i.category === 'Footwear');
-    const outerwear = wardrobe.filter((i) => i.category === 'Outerwear');
+  const handleShuffleOutfit = () => {
+    const nextSlots = shuffleWardrobeOutfit(
+      wardrobe,
+      slots,
+      profile.layerOverBase,
+      occasionFilter,
+    );
+    setSlots(nextSlots);
+    setSuspendedOuterwear(null);
+  };
 
-    if (tops.length === 0 || bottoms.length === 0 || footwear.length === 0) {
-      return;
+  const handleSavePersonalGarment = (item: WardrobeItem) => {
+    const isEdit = personalGarments.some((g) => g.id === item.id);
+    setPersonalGarments((prev) => {
+      const idx = prev.findIndex((g) => g.id === item.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = item;
+        return copy;
+      }
+      return [item, ...prev];
+    });
+    void upsertPersonalGarment(item);
+
+    if (isEdit) {
+      setSlots((prev) => ({
+        outerwear: prev.outerwear?.id === item.id ? item : prev.outerwear,
+        top: prev.top?.id === item.id ? item : prev.top,
+        bottom: prev.bottom?.id === item.id ? item : prev.bottom,
+        footwear: prev.footwear?.id === item.id ? item : prev.footwear,
+      }));
+    } else {
+      handleSelectItem(item);
+    }
+    setEditingGarment(null);
+  };
+
+  const handleDeletePersonalGarment = (item: WardrobeItem) => {
+    setPersonalGarments((prev) => prev.filter((g) => g.id !== item.id));
+    void deletePersonalGarment(item.id);
+    setSlots((prev) => ({
+      outerwear: prev.outerwear?.id === item.id ? null : prev.outerwear,
+      top: prev.top?.id === item.id ? null : prev.top,
+      bottom: prev.bottom?.id === item.id ? null : prev.bottom,
+      footwear: prev.footwear?.id === item.id ? null : prev.footwear,
+    }));
+    if (suspendedOuterwear?.id === item.id) {
+      setSuspendedOuterwear(null);
+    }
+  };
+
+  const handleUpdateGarmentTransform = (
+    itemId: string,
+    transform: GarmentTransform,
+  ) => {
+    let updatedPersonal: WardrobeItem | null = null;
+    setPersonalGarments((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        updatedPersonal = { ...item, mirrorTransform: transform };
+        return updatedPersonal;
+      }),
+    );
+
+    if (updatedPersonal) {
+      void upsertPersonalGarment(updatedPersonal);
+    } else {
+      // Also check personalGarments synchronously in case React batches state
+      const match = personalGarments.find((g) => g.id === itemId);
+      if (match) {
+        void upsertPersonalGarment({ ...match, mirrorTransform: transform });
+      }
     }
 
-    const pickRandom = <T,>(arr: T[]): T =>
-      arr[Math.floor(Math.random() * arr.length)];
-
-    const chosenTop =
-      tops.length > 1 && slots.top
-        ? pickRandom(tops.filter((t) => t.id !== slots.top?.id))
-        : pickRandom(tops);
-
-    const compatBottoms = bottoms.filter((b) => areItemsCompatible(chosenTop, b));
-    const chosenBottom = pickRandom(
-      compatBottoms.length > 0 ? compatBottoms : bottoms,
-    );
-
-    const compatShoes = footwear.filter(
-      (f) =>
-        areItemsCompatible(chosenTop, f) && areItemsCompatible(chosenBottom, f),
-    );
-    const chosenShoes = pickRandom(
-      compatShoes.length > 0 ? compatShoes : footwear,
-    );
-
-    const compatLayers = outerwear.filter(
-      (o) =>
-        areItemsCompatible(chosenTop, o) && areItemsCompatible(chosenBottom, o),
-    );
-    const chosenLayer =
-      compatLayers.length > 0 ? pickRandom(compatLayers) : null;
-
-    setSlots({
-      outerwear: chosenLayer,
-      top: chosenTop,
-      bottom: chosenBottom,
-      footwear: chosenShoes,
-    });
-    setActiveFocusSlot('top');
-  };
-
-  const handleMarkPurchased = (drop: TrendingDrop) => {
-    if (budget.purchasedDropIds.includes(drop.id)) return;
-
-    setBudget((prev) => ({
-      ...prev,
-      spentInr: prev.spentInr + drop.priceInr,
-      purchasedDropIds: [...prev.purchasedDropIds, drop.id],
+    setSlots((prev) => ({
+      outerwear:
+        prev.outerwear?.id === itemId
+          ? { ...prev.outerwear, mirrorTransform: transform }
+          : prev.outerwear,
+      top:
+        prev.top?.id === itemId
+          ? { ...prev.top, mirrorTransform: transform }
+          : prev.top,
+      bottom:
+        prev.bottom?.id === itemId
+          ? { ...prev.bottom, mirrorTransform: transform }
+          : prev.bottom,
+      footwear:
+        prev.footwear?.id === itemId
+          ? { ...prev.footwear, mirrorTransform: transform }
+          : prev.footwear,
     }));
-
-    const ownedItem: WardrobeItem = {
-      id: `owned-${drop.id}`,
-      name: drop.name,
-      category: drop.category,
-      colorName: drop.colorName,
-      colorHex: drop.colorHex,
-      colorFamily: drop.colorFamily,
-      vibe: drop.vibe,
-      tags: [...drop.tags],
-      fit: drop.fit,
-      silhouette: drop.silhouette,
-      imageUrl: drop.imageUrl,
-      fromDropId: drop.id,
-    };
-
-    setWardrobe((prev) => {
-      if (prev.some((w) => w.fromDropId === drop.id)) return prev;
-      return [ownedItem, ...prev];
-    });
-
-    const slot = CATEGORY_TO_SLOT[drop.category];
-    setSlots((prev) => {
-      if (prev[slot]?.id === drop.id) {
-        return { ...prev, [slot]: ownedItem };
-      }
-      return prev;
-    });
   };
 
-  const handleSaveLook = (
-    title: string,
-    contextTag: string,
-    notes: string,
-  ) => {
-    const equippedEntries = (Object.values(slots) as (WardrobeItem | TrendingDrop | null)[])
-      .filter((item): item is WardrobeItem | TrendingDrop => item !== null);
+  const handleSaveLook = () => {
+    const equippedEntries = (
+      Object.values(slots) as (WardrobeItem | typeof TRENDING_DROPS[number] | null)[]
+    ).filter((item): item is NonNullable<typeof item> => item !== null);
 
     if (equippedEntries.length === 0) return;
 
+    const skinLabel =
+      SKIN_TONE_OPTIONS.find((s) => s.id === profile.skinTone)?.label ??
+      'Wheatish';
+    const contextLabel =
+      occasionFilter === 'All' ? 'Curated Wardrobe' : occasionFilter;
+    const autoTitle = slots.outerwear
+      ? `${slots.outerwear.name.split(' ').slice(-2).join(' ')} & ${slots.top ? slots.top.colorName : 'Layer'} Look`
+      : slots.top
+        ? `${slots.top.colorName} ${slots.top.name.split(' ').slice(-1)[0]} Fit`
+        : 'Saved FitCheck Look';
+
     const newOutfit: SavedOutfit = {
       id: `saved-${Date.now()}`,
-      title,
-      contextTag,
-      notes,
+      title: autoTitle,
+      contextTag: contextLabel,
+      notes: `${skinLabel} (${profile.undertone}) · Size ${profile.size} ${profile.fitPreference} · ${harmony.tip}`,
       createdAt: new Date().toISOString(),
+      harmonyScore: harmony.score,
+      lighting: profile.lighting,
       slots: {
         outerwearId: slots.outerwear?.id ?? null,
         topId: slots.top?.id ?? null,
@@ -295,11 +339,12 @@ export default function App() {
         silhouette: item.silhouette,
         imageUrl: item.imageUrl,
         isDrop: isTrendingDrop(item),
-        priceInr: isTrendingDrop(item) ? item.priceInr : undefined,
+        priceInr: item.priceInr,
       })),
     };
 
     setSavedOutfits((prev) => [newOutfit, ...prev]);
+    setShareModalOutfit(newOutfit);
   };
 
   const handleLoadOutfit = (outfit: SavedOutfit) => {
@@ -318,162 +363,215 @@ export default function App() {
       bottom: resolveItem(outfit.slots.bottomId),
       footwear: resolveItem(outfit.slots.footwearId),
     });
-    setMobileTab('canvas');
   };
 
   const handleDeleteSavedOutfit = (id: string) => {
     setSavedOutfits((prev) => prev.filter((o) => o.id !== id));
   };
 
-  const handleUpdateMonthlyLimit = (newLimit: number) => {
-    setBudget((prev) => ({
-      ...prev,
-      monthlyLimitInr: newLimit,
-    }));
+  const handleExportPng = async (title?: string) => {
+    if (!mirrorRef.current || isExporting) return;
+    setIsExporting(true);
+    try {
+      await exportOutfitCanvasAsPng(mirrorRef.current, {
+        lookTitle: title ?? 'FitCheck Look',
+        contextTag: occasionFilter,
+      });
+    } finally {
+      setIsExporting(false);
+    }
   };
 
-  const handleResetDemoData = () => {
+  const handleResetDemo = () => {
     const fresh = resetAllDemoData();
-    setWardrobe(fresh.wardrobe);
-    setBudget(fresh.budget);
+    setCatalogWardrobe(fresh.wardrobe);
     setSavedOutfits(fresh.savedOutfits);
+    setProfile(fresh.profile);
     setSlots(buildInitialSlots(fresh.wardrobe));
-    setActiveFocusSlot('top');
+    setOccasionFilter('All');
+    setClosetSource('all');
+    setSuspendedOuterwear(null);
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#0E1117] text-slate-100">
-      <BudgetTracker
-        budget={budget}
-        savedCount={savedOutfits.length}
-        onUpdateMonthlyLimit={handleUpdateMonthlyLimit}
-        onOpenSavedLooks={() => setIsSavedDrawerOpen(true)}
-        onOpenStylistChat={() => setIsStylistChatOpen(true)}
-        onResetDemoData={handleResetDemoData}
+    <div
+      data-wardrobe-open={isDoorsOpen}
+      className="min-h-screen lg:h-screen lg:overflow-hidden flex flex-col bg-[#181512] text-[#f5efe6] relative overflow-x-hidden"
+    >
+      {/* 3D Double-Door Wardrobe Landing Screen */}
+      <WardrobeDoorsOverlay
+        isOpen={isDoorsOpen}
+        onOpen={() => setIsDoorsOpen(true)}
       />
 
-      {/* Mobile View Switcher (< lg) */}
-      <div className="lg:hidden px-4 pt-3">
-        <div
-          role="tablist"
-          aria-label="FitCheck mobile workspace views"
-          className="grid grid-cols-3 gap-1 p-1 bg-[#151922] border border-white/10 rounded-xl"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mobileTab === 'wardrobe'}
-            onClick={() => setMobileTab('wardrobe')}
-            className={`inline-flex items-center justify-center gap-1.5 py-2 px-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
-              mobileTab === 'wardrobe'
-                ? 'bg-white text-slate-950'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Shirt className="w-3.5 h-3.5" aria-hidden="true" />
-            Wardrobe
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mobileTab === 'canvas'}
-            onClick={() => setMobileTab('canvas')}
-            className={`inline-flex items-center justify-center gap-1.5 py-2 px-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
-              mobileTab === 'canvas'
-                ? 'bg-white text-slate-950'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5" aria-hidden="true" />
-            Canvas
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mobileTab === 'drops'}
-            onClick={() => setMobileTab('drops')}
-            className={`inline-flex items-center justify-center gap-1.5 py-2 px-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
-              mobileTab === 'drops'
-                ? 'bg-white text-slate-950'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
-            Drops
-          </button>
-        </div>
-      </div>
+      {/* Open Closet Top Architectural Rail */}
+      <header className="border-b border-[#e0b973]/20 bg-[#14110e]/95 backdrop-blur-md sticky top-0 z-20">
+        <div className="max-w-[1440px] mx-auto px-3 sm:px-6 h-14 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0 shrink-0">
+            <span className="font-display text-lg sm:text-2xl font-semibold tracking-tight text-[#f5efe6] whitespace-nowrap">
+              FitCheck AI
+            </span>
+            <span className="hidden md:inline text-xs text-[#baa995] truncate">
+              Virtual Wardrobe · {wardrobe.length} pieces
+              {personalGarments.length > 0
+                ? ` (${personalGarments.length} yours)`
+                : ''}
+            </span>
+          </div>
 
-      {/* 3-Column Studio Workspace */}
-      <div className="flex-1 max-w-[1440px] w-full mx-auto px-4 sm:px-6 py-4 grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)_372px] xl:grid-cols-[345px_minmax(0,1fr)_395px] gap-4 lg:h-[calc(100vh-116px)] lg:min-h-[640px]">
-        <div
-          className={`min-h-0 ${
-            mobileTab === 'wardrobe' ? 'block' : 'hidden lg:block'
-          }`}
-        >
-          <WardrobeSidebar
-            items={wardrobe}
-            equippedIds={equippedIds}
-            compatibleIds={compatibleIds}
-            activeFocusItem={activeFocusItem}
-            onSelectItem={handleSelectWardrobeItem}
-            onAddItem={handleAddWardrobeItem}
-            onDeleteItem={handleDeleteWardrobeItem}
-          />
-        </div>
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsSavedDrawerOpen(true)}
+              className="inline-flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-lg bg-[#261f1a] hover:bg-[#312821] border border-[#f5efe6]/15 text-[11px] sm:text-xs font-medium text-[#f5efe6] transition-colors cursor-pointer whitespace-nowrap tabular-nums"
+            >
+              <Bookmark className="w-3.5 h-3.5 text-[#e0b973]" aria-hidden="true" />
+              <span>Saved ({savedOutfits.length})</span>
+            </button>
 
-        <div
-          className={`min-h-0 ${
-            mobileTab === 'canvas' ? 'block' : 'hidden lg:block'
-          }`}
-        >
-          <OutfitCanvas
+            <button
+              type="button"
+              onClick={handleResetDemo}
+              aria-label="Reset wardrobe to default pieces"
+              title="Reset catalog & settings"
+              className="p-1.5 sm:p-2 rounded-lg bg-[#261f1a] hover:bg-[#312821] border border-[#f5efe6]/10 text-[#cbbca8] hover:text-[#f5efe6] transition-colors cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsDoorsOpen(false)}
+              aria-label="Close Doors"
+              className="inline-flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-lg bg-[#261f1a] hover:bg-[#332922] border border-[#e0b973]/30 text-[11px] sm:text-xs font-medium text-[#e0b973] transition-colors cursor-pointer whitespace-nowrap"
+            >
+              <DoorClosed className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Close Doors</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Open Wardrobe Interior Workspace */}
+      <main className="flex-1 min-h-0 max-w-[1440px] w-full mx-auto px-3 sm:px-6 py-3 pb-24 md:pb-3 grid grid-cols-1 md:grid-cols-[325px_minmax(0,1fr)] lg:grid-cols-[348px_minmax(0,1fr)_350px] lg:grid-rows-[minmax(0,1fr)] gap-4">
+        {/* Left Wing — Full-Length Smart Mirror (>= 768px) */}
+        <div className="hidden md:block h-full min-h-0">
+          <SmartMirrorPanel
             slots={slots}
-            activeFocusItem={activeFocusItem}
-            unlockedOutfitsCount={unlockedOutfitsCount}
-            activeDrop={activeDropOnCanvas}
-            activeDropVerdict={activeDropVerdict}
-            purchasedDropIds={budget.purchasedDropIds}
+            lighting={profile.lighting}
+            skinTone={profile.skinTone}
+            fitPreference={profile.fitPreference}
+            bodyType={profile.bodyType}
+            fitEvaluation={fitEvaluation}
+            mirrorRef={mirrorRef}
+            isExporting={isExporting}
+            onChangeLighting={(lighting) => handleUpdateProfile({ lighting })}
+            onChangeBodyType={(bodyType) => handleUpdateProfile({ bodyType })}
             onClearSlot={handleClearSlot}
-            onFocusSlot={(slot) => setActiveFocusSlot(slot)}
-            onShuffleCompatibleFit={handleShuffleCompatibleFit}
-            onClearAllSlots={handleClearAllSlots}
-            onSaveLook={handleSaveLook}
-            onOpenVerdictModal={(drop) => setVerdictModalDrop(drop)}
-            onMarkPurchased={handleMarkPurchased}
+            onClearAll={handleClearAll}
+            onShuffleFit={handleShuffleOutfit}
+            onExportPng={() => void handleExportPng()}
+            onApplySwap={handleApplySwap}
+            onOpenMoodboard={() => setIsMoodboardOpen(true)}
+            onUpdateGarmentTransform={handleUpdateGarmentTransform}
           />
         </div>
 
-        <div
-          className={`min-h-0 ${
-            mobileTab === 'drops' ? 'block' : 'hidden lg:block'
-          }`}
-        >
-          <TrendingDropsFeed
-            drops={TRENDING_DROPS}
-            wardrobe={wardrobe}
-            remainingBudgetInr={remainingBudgetInr}
-            purchasedDropIds={budget.purchasedDropIds}
-            activeTestDropId={activeDropOnCanvas?.id ?? null}
-            onTestDrop={handleTestDrop}
-            onMarkPurchased={handleMarkPurchased}
-            onOpenVerdict={(drop) => setVerdictModalDrop(drop)}
+        {/* Center Zone — Categorized Hanging Rails & Shoe Rack */}
+        <div className="h-full min-h-0">
+          <ClosetRailsZone
+            items={wardrobe}
+            slots={slots}
+            occasionFilter={occasionFilter}
+            closetSource={closetSource}
+            personalCount={personalGarments.length}
+            layerOverBase={profile.layerOverBase}
+            onChangeOccasion={setOccasionFilter}
+            onChangeClosetSource={setClosetSource}
+            onToggleLayerOverBase={handleToggleLayerOverBase}
+            onSelectItem={handleSelectItem}
+            onOpenAddGarment={() => {
+              setEditingGarment(null);
+              setIsAddGarmentOpen(true);
+            }}
+            onEditItem={(item) => {
+              setEditingGarment(item);
+              setIsAddGarmentOpen(true);
+            }}
+            onDeleteItem={handleDeletePersonalGarment}
           />
         </div>
-      </div>
+
+        {/* Right Wing — Fit, Size & Skin-Tone Panel (>= 768px) */}
+        <div className="hidden md:block md:col-span-2 lg:col-span-1 h-full min-h-0">
+          <StylingDrawerPanel
+            profile={profile}
+            slots={slots}
+            harmony={harmony}
+            savedCount={savedOutfits.length}
+            onUpdateProfile={handleUpdateProfile}
+            onToggleOuterLayerVisibility={handleToggleOuterLayerVisibility}
+            hasSuspendedOuterLayer={suspendedOuterwear !== null}
+            onSaveLook={handleSaveLook}
+            onOpenSavedLooks={() => setIsSavedDrawerOpen(true)}
+            onOpenAiStylist={() => setIsStylistChatOpen(true)}
+          />
+        </div>
+      </main>
+
+      {/* Mobile Sticky Collapsible Mirror Preview Bar (< 768px) */}
+      <MobileMirrorBar
+        slots={slots}
+        profile={profile}
+        harmony={harmony}
+        fitEvaluation={fitEvaluation}
+        savedCount={savedOutfits.length}
+        isExporting={isExporting}
+        hasSuspendedOuterLayer={suspendedOuterwear !== null}
+        onChangeLighting={(lighting) => handleUpdateProfile({ lighting })}
+        onClearSlot={handleClearSlot}
+        onClearAll={handleClearAll}
+        onExportPng={() => void handleExportPng()}
+        onShuffleOutfit={handleShuffleOutfit}
+        onUpdateProfile={handleUpdateProfile}
+        onToggleOuterLayerVisibility={handleToggleOuterLayerVisibility}
+        onSaveLook={handleSaveLook}
+        onOpenSavedLooks={() => setIsSavedDrawerOpen(true)}
+        onOpenAiStylist={() => setIsStylistChatOpen(true)}
+        onOpenMoodboard={() => setIsMoodboardOpen(true)}
+        onApplySwap={handleApplySwap}
+        onUpdateGarmentTransform={handleUpdateGarmentTransform}
+      />
 
       {/* Modals & Drawers */}
-      <VerdictModal
-        drop={verdictModalDrop}
-        verdict={modalVerdict}
-        isPurchased={
-          verdictModalDrop
-            ? budget.purchasedDropIds.includes(verdictModalDrop.id)
-            : false
-        }
-        onClose={() => setVerdictModalDrop(null)}
-        onTestDrop={handleTestDrop}
-        onMarkPurchased={handleMarkPurchased}
+      <ShareLookModal
+        savedOutfit={shareModalOutfit}
+        slots={slots}
+        harmony={harmony}
+        profile={profile}
+        isExporting={isExporting}
+        onClose={() => setShareModalOutfit(null)}
+        onExportPng={(title) => void handleExportPng(title)}
+        onOpenSavedLooks={() => setIsSavedDrawerOpen(true)}
+        onOpenMoodboard={() => setIsMoodboardOpen(true)}
+      />
+
+      <MoodboardModal
+        isOpen={isMoodboardOpen}
+        slots={slots}
+        profile={profile}
+        fitEvaluation={fitEvaluation}
+        onClose={() => setIsMoodboardOpen(false)}
+      />
+
+      <AddMyClothesModal
+        isOpen={isAddGarmentOpen}
+        editingItem={editingGarment}
+        onClose={() => {
+          setIsAddGarmentOpen(false);
+          setEditingGarment(null);
+        }}
+        onSave={handleSavePersonalGarment}
       />
 
       <SavedLooksDrawer
@@ -488,9 +586,9 @@ export default function App() {
         isOpen={isStylistChatOpen}
         wardrobe={wardrobe}
         slots={slots}
-        activeDrop={activeDropOnCanvas}
+        activeDrop={null}
         monthlyLimitInr={budget.monthlyLimitInr}
-        remainingBudgetInr={remainingBudgetInr}
+        remainingBudgetInr={budget.monthlyLimitInr - budget.spentInr}
         onClose={() => setIsStylistChatOpen(false)}
       />
     </div>

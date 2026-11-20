@@ -454,3 +454,241 @@ export function buildVisibleDropsPriceData(
   return { points, avgPriceInr, maxPriceInr };
 }
 
+export type PalettePairingRole =
+  | 'Complementary'
+  | 'Neutral Anchor'
+  | 'Tonal Match';
+
+export interface ColorPaletteSuggestion {
+  itemId: string;
+  itemName: string;
+  category: GarmentCategory;
+  colorName: string;
+  colorHex: string;
+  colorFamily: ColorFamily;
+  role: PalettePairingRole;
+  reason: string;
+  harmonyScore: number;
+}
+
+export interface ColorPaletteAnalysis {
+  dropColorName: string;
+  dropColorHex: string;
+  dropColorFamily: ColorFamily;
+  headline: string;
+  suggestions: ColorPaletteSuggestion[];
+}
+
+function getHexLuminance(hex: string): number {
+  const clean = hex.trim().replace(/^#/, '');
+  if (!/^[0-9a-fA-F]{6}$/.test(clean)) return 0.5;
+  const r = parseInt(clean.slice(0, 2), 16) / 255;
+  const g = parseInt(clean.slice(2, 4), 16) / 255;
+  const b = parseInt(clean.slice(4, 6), 16) / 255;
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function classifyColorPairing(
+  drop: Pick<TrendingDrop, 'colorName' | 'colorHex' | 'colorFamily'>,
+  item: Pick<WardrobeItem, 'colorName' | 'colorHex' | 'colorFamily'>,
+): { role: PalettePairingRole; reason: string; baseScore: number } | null {
+  const dropColorLower = drop.colorName.toLowerCase();
+  const itemColorLower = item.colorName.toLowerCase();
+
+  if (drop.colorFamily === 'bold') {
+    if (item.colorFamily === 'neutral') {
+      return {
+        role: 'Neutral Anchor',
+        reason: `Grounds ${dropColorLower} cleanly without competing for attention.`,
+        baseScore: 92,
+      };
+    }
+    return null;
+  }
+
+  if (drop.colorFamily === 'earth') {
+    if (item.colorFamily === 'cool') {
+      return {
+        role: 'Complementary',
+        reason: `Cool ${itemColorLower} contrast sharpens earthy ${dropColorLower}.`,
+        baseScore: 90,
+      };
+    }
+    if (item.colorFamily === 'neutral') {
+      return {
+        role: 'Neutral Anchor',
+        reason: `Crisp neutral balance that frames ${dropColorLower} effortlessly.`,
+        baseScore: 94,
+      };
+    }
+    if (item.colorFamily === 'earth') {
+      return {
+        role: 'Tonal Match',
+        reason: `Warm tonal layering alongside ${dropColorLower}.`,
+        baseScore: 86,
+      };
+    }
+    return null;
+  }
+
+  if (drop.colorFamily === 'cool') {
+    if (item.colorFamily === 'earth') {
+      return {
+        role: 'Complementary',
+        reason: `Warm ${itemColorLower} softens and complements ${dropColorLower}.`,
+        baseScore: 91,
+      };
+    }
+    if (item.colorFamily === 'neutral') {
+      return {
+        role: 'Neutral Anchor',
+        reason: `Clean neutral anchor that keeps ${dropColorLower} sharp.`,
+        baseScore: 94,
+      };
+    }
+    if (item.colorFamily === 'cool') {
+      return {
+        role: 'Tonal Match',
+        reason: `Layered cool monochrome depth with ${dropColorLower}.`,
+        baseScore: 84,
+      };
+    }
+    return null;
+  }
+
+  // drop.colorFamily === 'neutral'
+  if (item.colorFamily === 'earth') {
+    return {
+      role: 'Complementary',
+      reason: `Adds organic warmth against neutral ${dropColorLower}.`,
+      baseScore: 95,
+    };
+  }
+  if (item.colorFamily === 'cool') {
+    return {
+      role: 'Complementary',
+      reason: `Introduces rich cool depth beside ${dropColorLower}.`,
+      baseScore: 92,
+    };
+  }
+  if (item.colorFamily === 'neutral') {
+    return {
+      role: 'Tonal Match',
+      reason: `Sleek tonal monochrome pairing with ${dropColorLower}.`,
+      baseScore: 88,
+    };
+  }
+  return null;
+}
+
+function hexColorDistance(hexA: string, hexB: string): number {
+  const cleanA = hexA.trim().replace(/^#/, '');
+  const cleanB = hexB.trim().replace(/^#/, '');
+  if (!/^[0-9a-fA-F]{6}$/.test(cleanA) || !/^[0-9a-fA-F]{6}$/.test(cleanB)) {
+    return 999;
+  }
+  const dr = parseInt(cleanA.slice(0, 2), 16) - parseInt(cleanB.slice(0, 2), 16);
+  const dg = parseInt(cleanA.slice(2, 4), 16) - parseInt(cleanB.slice(2, 4), 16);
+  const db = parseInt(cleanA.slice(4, 6), 16) - parseInt(cleanB.slice(4, 6), 16);
+  return Math.sqrt(dr * dr + dg * dg + db * db);
+}
+
+export function buildColorPaletteSuggestions(
+  drop: Pick<TrendingDrop, 'id' | 'category' | 'colorName' | 'colorHex' | 'colorFamily'>,
+  wardrobe: WardrobeItem[],
+  maxSuggestions = 4,
+): ColorPaletteAnalysis {
+  const candidates = wardrobe.filter(
+    (item) => item.id !== drop.id && item.category !== drop.category,
+  );
+
+  const dropLum = getHexLuminance(drop.colorHex);
+  const scored: ColorPaletteSuggestion[] = [];
+
+  for (const item of candidates) {
+    const classified = classifyColorPairing(drop, item);
+    if (!classified) continue;
+
+    const itemLum = getHexLuminance(item.colorHex);
+    const contrastDiff = Math.abs(dropLum - itemLum);
+    const contrastBonus = Math.round(contrastDiff * 8);
+    const harmonyScore = Math.min(100, classified.baseScore + contrastBonus);
+
+    scored.push({
+      itemId: item.id,
+      itemName: item.name,
+      category: item.category,
+      colorName: item.colorName,
+      colorHex: item.colorHex,
+      colorFamily: item.colorFamily,
+      role: classified.role,
+      reason: classified.reason,
+      harmonyScore,
+    });
+  }
+
+  scored.sort((a, b) => b.harmonyScore - a.harmonyScore);
+
+  const uniqueByTone: ColorPaletteSuggestion[] = [];
+  const seenColorKeys = new Set<string>();
+  for (const entry of scored) {
+    const key = entry.colorName.trim().toLowerCase();
+    if (seenColorKeys.has(key)) continue;
+    if (
+      uniqueByTone.some(
+        (existing) => hexColorDistance(existing.colorHex, entry.colorHex) < 32,
+      )
+    ) {
+      continue;
+    }
+    seenColorKeys.add(key);
+    uniqueByTone.push(entry);
+  }
+
+  // Ensure both Complementary & Neutral Anchor tones appear near the top when available
+  const picked: ColorPaletteSuggestion[] = [];
+  const rolesOrder: PalettePairingRole[] = [
+    'Complementary',
+    'Neutral Anchor',
+    'Tonal Match',
+  ];
+  for (const role of rolesOrder) {
+    const match = uniqueByTone.find(
+      (s) => s.role === role && !picked.some((p) => p.itemId === s.itemId),
+    );
+    if (match && picked.length < maxSuggestions) {
+      picked.push(match);
+    }
+  }
+  for (const s of uniqueByTone) {
+    if (picked.length >= maxSuggestions) break;
+    if (!picked.some((p) => p.itemId === s.itemId)) {
+      picked.push(s);
+    }
+  }
+
+  picked.sort((a, b) => b.harmonyScore - a.harmonyScore);
+
+  let headline: string;
+  if (picked.length === 0) {
+    headline = `No non-clashing ${drop.colorName.toLowerCase()} pairings found in your current closet—pair with black, white, or charcoal staples.`;
+  } else if (drop.colorFamily === 'bold') {
+    headline = `Anchor ${drop.colorName} with crisp wardrobe neutrals so the statement tone stays balanced.`;
+  } else if (drop.colorFamily === 'earth') {
+    headline = `Pair ${drop.colorName} with cool indigo contrasts or clean neutral tones already in your closet.`;
+  } else if (drop.colorFamily === 'cool') {
+    headline = `Warm up ${drop.colorName} with earthy tones and crisp neutrals from your wardrobe.`;
+  } else {
+    headline = `${drop.colorName} acts as a versatile base—layer with earthy, cool, or tonal neutrals below.`;
+  }
+
+  return {
+    dropColorName: drop.colorName,
+    dropColorHex: drop.colorHex,
+    dropColorFamily: drop.colorFamily,
+    headline,
+    suggestions: picked,
+  };
+}
+
+
